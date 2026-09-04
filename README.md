@@ -15,7 +15,7 @@ send-to-vlc is a bare-bones web app for sending a URL to for streaming by VLC on
 
 Linux:
 ```
-git pull https://github.com/nicholaszako/send-to-vlc.git
+git clone https://github.com/nicholaszako/send-to-vlc.git
 cd ./send-to-vlc
 python3 -m venv .venv
 source .venv/bin/activate
