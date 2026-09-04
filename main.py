@@ -4,7 +4,7 @@ import validators
 from urllib.parse import urlsplit, parse_qs
 
 MAX_HEIGHT = 1080
-GETTABLE_DOMAINS = ['youtu.be', 'youtube.com']  # Expand as needed. See https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+YOUTUBE_DOMAINS = ['youtu.be', 'youtube.com']  # Expand as needed. See https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 ALWAYS_NEW_VLC = True # Whether to kill all VLC instances before attempting to play new media. Generally less buggy this way.
 
 app = Flask(__name__, static_url_path='/static')
@@ -12,22 +12,10 @@ app = Flask(__name__, static_url_path='/static')
 # POST request. Supports query parameters such as 't' (time) in URL.
 @app.route("/api/send", methods=['POST'])
 def stream():
-    if request.method =='POST':
-        url = request.form['url']
-        if (validators.url(url)):
-            playback_url = url
-            split_url = urlsplit(url)
-            qs = parse_qs(split_url.query)
-
-            time = None
-            if (qs.get('t')):
-                time = qs['t'][0]
-
-            if (split_url.netloc in GETTABLE_DOMAINS):
-                playback_url = get_playback_url(url)
-            vlc_play(playback_url, time)
-            
-            return 'OK', 200
+    url = request.form['url']
+    if (validators.url(url)):
+        vlc_play(url)
+        return 'OK', 200
     return 'Bad Request', 400
 
 # Basic GET. Legacy.
@@ -35,25 +23,54 @@ def stream():
 def stream_get():
     url = request.args.get('url', '')
     if (validators.url(url)):
-        playback_url = url
-        
-        if (urlsplit(url).netloc in GETTABLE_DOMAINS):
-            playback_url = get_playback_url(url)
-        vlc_play(playback_url)
-        
+        vlc_play(url)
         return 'OK', 200
     return 'Bad Request', 400
 
-def get_playback_url(url: str) -> str:
-    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'best[height={MAX_HEIGHT}]']
+# Get URL for best quality (up to max height) audiovideo format
+def get_av_url(url: str) -> str:
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'best[height<={MAX_HEIGHT}]']
     p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
     return p.stdout.strip()
 
-def vlc_play(uri: str, t = None):
-    vlc_cmd = ['vlc', uri, '-f']
+# Get URL for best quality audio-only format
+def get_audio_url(url: str) -> str:
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'bestaudio']
+    p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
+    return p.stdout.strip()
+
+# Get URL for best quality video-only format
+def get_video_url(url: str) -> str:
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'bestvideo[height<={MAX_HEIGHT}]']
+    p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
+    return p.stdout.strip()
+
+def vlc_play(uri: str):
+    audio_uri = None
+    time = None
+
+    if (validators.url(uri)):
+        playback_uri = uri
+        split_url = urlsplit(uri)
+        qs = parse_qs(split_url.query)
+        domain = split_url.netloc
+        if (domain.startswith('www.')):
+            domain = domain[4:]
+        if (domain in YOUTUBE_DOMAINS):
+            # For YouTube, better luck searching for seperate streams
+            playback_uri = get_video_url(uri)
+            audio_uri = get_audio_url(uri)
+            if (qs.get('t')):
+                time = qs['t'][0]
+
+    vlc_cmd = ['vlc', playback_uri, '-f']
     
-    if (t):
-        vlc_cmd.extend(['--start-time', str(t)])
+    if (time):
+        vlc_cmd.extend(['--start-time', str(time)])
+
+    if (audio_uri):
+        # https://superuser.com/a/691274
+        vlc_cmd.extend(['--input-slave', str(audio_uri)])
     
     if (ALWAYS_NEW_VLC):
         subprocess.run(['killall', 'vlc'])
