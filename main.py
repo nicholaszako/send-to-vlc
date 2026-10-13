@@ -6,16 +6,28 @@ from urllib.parse import urlsplit, parse_qs
 MAX_HEIGHT = 1080
 YOUTUBE_DOMAINS = ['youtu.be', 'youtube.com']  # Expand as needed. See https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 ALWAYS_NEW_VLC = True # Whether to kill all VLC instances before attempting to play new media. Generally less buggy this way.
+DOWNLOAD_PATH = ''
 
 app = Flask(__name__, static_url_path='/static')
 
 # POST request. Supports query parameters such as 't' (time) in URL.
-@app.route("/api/send", methods=['POST'])
+@app.route("/api/stream", methods=['POST'])
 def stream():
     url = request.form['url']
     if (validators.url(url)):
         vlc_play(url)
         return 'OK', 200
+    return 'Bad Request', 400
+
+# TODO: Make async
+@app.route("/api/dl", methods=['POST'])
+def dl():
+    url = request.form['url']
+    if (validators.url(url)):
+        if av_download(url):        
+            return 'Downloaded', 200
+        else:
+            return 'Server error', 500
     return 'Bad Request', 400
 
 # Basic GET. Legacy.
@@ -29,26 +41,28 @@ def stream_get():
 
 # Get URL for best quality (up to max height) audiovideo format
 def get_av_url(url: str) -> str:
-    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'best[height<={MAX_HEIGHT}]']
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', 
+                 f'best[height<={MAX_HEIGHT}]']
     p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
     return p.stdout.strip()
 
 # Get URL for best quality audio-only format
 def get_audio_url(url: str) -> str:
-    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'bestaudio']
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', 
+                 f'bestaudio']
     p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
     return p.stdout.strip()
 
 # Get URL for best quality video-only format
 def get_video_url(url: str) -> str:
-    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', f'bestvideo[height<={MAX_HEIGHT}]']
+    ytdlp_cmd = ['yt-dlp', url, '--get-url', '--format', 
+                 f'bestvideo[height<={MAX_HEIGHT}]']
     p = subprocess.run(ytdlp_cmd, check=True, capture_output=True, text=True)
     return p.stdout.strip()
 
 def vlc_play(uri: str):
     audio_uri = None
     time = None
-
     if (validators.url(uri)):
         playback_uri = uri
         split_url = urlsplit(uri)
@@ -62,19 +76,14 @@ def vlc_play(uri: str):
             audio_uri = get_audio_url(uri)
             if (qs.get('t')):
                 time = qs['t'][0]
-
     vlc_cmd = ['vlc', playback_uri, '-f']
-    
     if (time):
         vlc_cmd.extend(['--start-time', str(time)])
-
     if (audio_uri):
         # https://superuser.com/a/691274
         vlc_cmd.extend(['--input-slave', str(audio_uri)])
-    
     if (ALWAYS_NEW_VLC):
         subprocess.run(['killall', 'vlc'])
-
     # Detached process lets VLC do its thing seperately
     subprocess.Popen(vlc_cmd, 
         stdin=subprocess.DEVNULL, 
@@ -82,6 +91,15 @@ def vlc_play(uri: str):
         stderr=subprocess.DEVNULL,
         start_new_session=True
     )
+
+def av_download(url: str):
+    format_str = (f'bestvideo*[height<={MAX_HEIGHT}]+bestaudio'
+                  f'/best[height<={MAX_HEIGHT}]')
+    ytdlp_cmd = ['yt-dlp', url, '--format', format_str, '--paths', 
+                 DOWNLOAD_PATH]
+    p = subprocess.run(ytdlp_cmd, check=True)
+    is_success = not bool(p.returncode)
+    return is_success
 
 
 if __name__ == '__main__':

@@ -7,10 +7,11 @@
 </head>
 
 <body>
-    <form action="/api/send" method="POST">
+    <form action="/api/stream" method="POST">
         <label for="url">URL:</label>
         <input type="url" id="url" name="url">
         <br><br>
-        <input type="submit" value="Submit">
+        <input type="submit" value="Stream">
+        <input type="submit" value="Download" formaction="/api/dl">
     </form>
 </body>
